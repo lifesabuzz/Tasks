@@ -84,8 +84,10 @@ h1{font-size:22px;font-weight:500;color:var(--text);margin-bottom:4px}
 .add-row button:hover,.toolbar button:hover{background:var(--bg2)}
 .toolbar{display:flex;gap:8px;margin-bottom:1.5rem;flex-wrap:wrap;align-items:center}
 .save-status{font-size:12px;color:var(--text3)}
-.sync-bar{background:var(--blue-bg);color:var(--blue-text);font-size:12px;padding:8px 12px;border-radius:var(--radius);margin-bottom:1.25rem;display:none}
+.sync-bar{font-size:12px;padding:8px 12px;border-radius:var(--radius);margin-bottom:1.25rem;display:none}
 .sync-bar.visible{display:block}
+.sync-bar.ok{background:var(--success-bg);color:var(--success)}
+.sync-bar.err{background:var(--red-bg);color:var(--red-text)}
 </style>
 </head>
 <body>
@@ -113,7 +115,8 @@ h1{font-size:22px;font-weight:500;color:var(--text);margin-bottom:4px}
 <script>
 const STORAGE_KEY='paul_tasks_v5';
 const TODOIST_TOKEN='f640d38f53a09bc81c0d46a159524c02ad17e9fa';
-const TODOIST_API='https://api.todoist.com/rest/v2';
+// Replace YOUR_WORKER_SUBDOMAIN with your Cloudflare Worker subdomain after deployment
+const PROXY='https://todoist-proxy.paul-anthony-brown.workers.dev/todoist';
 const sizeLabel={S:'Quick win',M:'One sitting',L:'Multi-step'};
 const sizeDot={S:'#1D9E75',M:'#BA7517',L:'#A32D2D'};
 const domainNames={work:'Work',personal:'Personal',projects:'Projects'};
@@ -147,15 +150,23 @@ function clearAll(){
   ['work','personal','projects'].forEach(renderPanel);showStatus('Cleared');
 }
 function showStatus(msg){const el=document.getElementById('save-status');el.textContent=msg;setTimeout(()=>{el.textContent=''},3000)}
-function showSyncBar(msg){const el=document.getElementById('sync-bar');el.textContent=msg;el.classList.add('visible');setTimeout(()=>el.classList.remove('visible'),4000)}
+function showSyncBar(msg,ok=true){
+  const el=document.getElementById('sync-bar');
+  el.textContent=msg;
+  el.className='sync-bar visible '+(ok?'ok':'err');
+  setTimeout(()=>el.classList.remove('visible'),5000);
+}
 
-async function todoistReq(method,path,body){
-  const res=await fetch(TODOIST_API+path,{
+async function proxyReq(method,path,body){
+  const res=await fetch(PROXY+path,{
     method,
-    headers:{'Authorization':'Bearer '+TODOIST_TOKEN,'Content-Type':'application/json'},
+    headers:{
+      'Content-Type':'application/json',
+      'X-Todoist-Token':TODOIST_TOKEN
+    },
     body:body?JSON.stringify(body):undefined
   });
-  if(!res.ok)throw new Error('Todoist API error: '+res.status);
+  if(!res.ok)throw new Error('API error '+res.status);
   if(res.status===204)return null;
   return res.json();
 }
@@ -163,19 +174,18 @@ async function todoistReq(method,path,body){
 async function pushToTodoist(){
   showStatus('Syncing...');
   try{
-    const existingProjects=await todoistReq('GET','/projects');
+    const existingProjects=await proxyReq('GET','/projects');
     const projectMap={};
 
     for(const domain of['work','personal','projects']){
       const name=domainNames[domain];
       let proj=existingProjects.find(p=>p.name===name);
-      if(!proj){
-        proj=await todoistReq('POST','/projects',{name});
-      }
+      if(!proj) proj=await proxyReq('POST','/projects',{name});
       projectMap[domain]=proj.id;
     }
 
-    const existingTasks=await todoistReq('GET','/tasks');
+    const existingTasks=await proxyReq('GET','/tasks');
+    let pushed=0;
 
     for(const domain of['work','personal','projects']){
       const projId=projectMap[domain];
@@ -185,31 +195,29 @@ async function pushToTodoist(){
         const flags=[t.blocker?'blocker':'',t.deadline?'deadline':''].filter(Boolean).join(', ');
         const desc=[sizeLabel[t.size],flags?'Flags: '+flags:'',t.note?'Next: '+t.note:''].filter(Boolean).join(' | ');
         const p=t.blocker&&t.deadline?1:t.blocker||t.deadline?2:priorityMap[t.size];
-        const alreadyExists=existingTasks.find(et=>et.project_id===projId&&et.content===t.title);
+        const existing=existingTasks.find(et=>et.project_id===projId&&et.content===t.title);
 
-        if(alreadyExists){
-          await todoistReq('POST',`/tasks/${alreadyExists.id}`,{
-            description:desc,
-            priority:p,
+        if(existing){
+          await proxyReq('POST',`/tasks/${existing.id}`,{
+            description:desc,priority:p,
             ...(t.repeat?{due_string:repeatLabel(t)}:{})
           });
         } else {
-          await todoistReq('POST','/tasks',{
-            content:t.title,
-            project_id:projId,
-            description:desc,
-            priority:p,
+          await proxyReq('POST','/tasks',{
+            content:t.title,project_id:projId,
+            description:desc,priority:p,
             ...(t.repeat?{due_string:repeatLabel(t)}:{})
           });
         }
+        pushed++;
       }
     }
 
-    showSyncBar('Pushed to Todoist. Open Todoist to see your tasks.');
+    showSyncBar(`Pushed ${pushed} task${pushed!==1?'s':''} to Todoist.`,true);
     showStatus('Synced');
   } catch(e){
     showStatus('Sync failed');
-    showSyncBar('Sync failed: '+e.message);
+    showSyncBar('Sync failed: '+e.message,false);
   }
 }
 
