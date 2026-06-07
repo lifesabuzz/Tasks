@@ -162,7 +162,7 @@ async function proxyReq(method,path,body){
     method,
     headers:{
       'Content-Type':'application/json',
-      'X-Todoist-Token':TODOIST_TOKEN
+      'Authorization':'Bearer '+TODOIST_TOKEN
     },
     body:body?JSON.stringify(body):undefined
   });
