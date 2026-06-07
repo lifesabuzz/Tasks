@@ -174,7 +174,8 @@ async function proxyReq(method,path,body){
 async function pushToTodoist(){
   showStatus('Syncing...');
   try{
-    const existingProjects=await proxyReq('GET','/projects');
+    const projRes=await proxyReq('GET','/projects');
+    const existingProjects=Array.isArray(projRes)?projRes:(projRes.results||projRes.projects||[]);
     const projectMap={};
 
     for(const domain of['work','personal','projects']){
@@ -184,7 +185,8 @@ async function pushToTodoist(){
       projectMap[domain]=proj.id;
     }
 
-    const existingTasks=await proxyReq('GET','/tasks');
+    const tasksRes=await proxyReq('GET','/tasks');
+    const existingTasks=Array.isArray(tasksRes)?tasksRes:(tasksRes.results||tasksRes.tasks||[]);
     let pushed=0;
 
     for(const domain of['work','personal','projects']){
