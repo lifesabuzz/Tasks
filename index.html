@@ -197,16 +197,17 @@ async function pushToTodoist(){
         const flags=[t.blocker?'blocker':'',t.deadline?'deadline':''].filter(Boolean).join(', ');
         const desc=[sizeLabel[t.size],flags?'Flags: '+flags:'',t.note?'Next: '+t.note:''].filter(Boolean).join(' | ');
         const p=t.blocker&&t.deadline?1:t.blocker||t.deadline?2:priorityMap[t.size];
-        const existing=existingTasks.find(et=>et.project_id===projId&&et.content===t.title);
+        const existing=existingTasks.find(et=>et.project_id===projId&&(et.content===t.title||et.name===t.title));
 
         if(existing){
           await proxyReq('POST',`/tasks/${existing.id}`,{
+            content:t.title,name:t.title,
             description:desc,priority:p,
             ...(t.repeat?{due_string:repeatLabel(t)}:{})
           });
         } else {
           await proxyReq('POST','/tasks',{
-            content:t.title,project_id:projId,
+            content:t.title,name:t.title,project_id:projId,
             description:desc,priority:p,
             ...(t.repeat?{due_string:repeatLabel(t)}:{})
           });
